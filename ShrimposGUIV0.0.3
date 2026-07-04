@@ -1,0 +1,1469 @@
+-- Shrimpo's GUI v0.0.3
+-- made by spinning Shrimpo (TikTok/YouTube/Root/Discord)
+-- this is for dandy's world and the other game (idk which one is which lol)
+
+-- =============================================
+-- GAME RESTRICTION: Only works in Dandy's World (16116270224) and another game (16552821455)
+-- =============================================
+local ALLOWED_GAMES = {
+    [16116270224] = true,
+    [16552821455] = true,
+}
+
+if not ALLOWED_GAMES[game.PlaceId] then
+    local StarterGui = game:GetService("StarterGui")
+    StarterGui:SetCore("SendNotification", {
+        Title = "Shrimpo's GUI",
+        Text = "This script only works in Dandys world and Dandys world matches",
+        Duration = 5,
+    })
+    return
+end
+
+-- =============================================
+-- walkpeed override (locks to 16) – cuz why not
+-- =============================================
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+pcall(function()
+    local rawmt = getrawmetatable(game)
+    setreadonly(rawmt, false)
+
+    local oldIndex = rawmt.__index
+
+    rawmt.__index = newcclosure(function(self, key)
+        if key == "WalkSpeed" then
+            if typeof(self) == "Instance"
+                and self:IsA("Humanoid")
+                and self.Parent
+                and self.Parent == LocalPlayer.Character then
+                return 16 -- always 16 baby
+            end
+        end
+        return oldIndex(self, key)
+    end)
+
+    setreadonly(rawmt, true)
+    print("WalkSpeed override installed – always returns 16 for local player.")
+end)
+
+-- =============================================
+-- load the GUI library (WindUI)
+-- =============================================
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+WindUI:SetTheme("Dark")
+
+local Window = WindUI:CreateWindow({
+    Title = "Shrimpo's GUI",
+    Icon = "rbxassetid://109588178233873",
+    Author = "by spinning Shrimpo",
+    Folder = "SpinningShrimpoHub",
+    Size = UDim2.fromOffset(580, 460),
+    Transparent = true,
+    Theme = "Dark",
+    Resizable = false,
+    ToggleKey = Enum.KeyCode.RightShift,
+})
+
+-- get services (boring)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local UserInput = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+local inDandysWorld = (game.PlaceId == 16116270224)
+
+-- some random vars (don't question them)
+local LoopSpeedEnabled = false
+local LoopSpeedValue = 16
+local SpinEnabled = false
+local FullbrightEnabled = false
+local AltFullbrightEnabled = false
+local TPoseEnabled = false
+local tposeConn
+local RespawnLoopEnabled = false
+local respawnLoopConnection = nil
+local TwistedsESPEnabled = false
+local espObjects = {}
+_G.SpinSpeed = 50
+
+local originalAmbient = Lighting.Ambient
+local originalBrightness = Lighting.Brightness
+local originalOutdoorAmbient = Lighting.OutdoorAmbient
+
+-- helper functions (cringe)
+local function getChar() return LocalPlayer.Character end
+local function getHRP() local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+local function getHum() local c = getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+
+-- loop speed (if you want it)
+RunService.Heartbeat:Connect(function()
+    if not LoopSpeedEnabled then return end
+    local h = getHum()
+    if h then h.WalkSpeed = LoopSpeedValue end
+end)
+
+-- spin stuff (funny)
+local spinConn
+local function startSpin()
+    spinConn = RunService.Heartbeat:Connect(function()
+        local hrp = getHRP()
+        if hrp then
+            local speed = _G.SpinSpeed or 50
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(speed) * (1/60), 0)
+        end
+    end)
+end
+local function stopSpin()
+    if spinConn then spinConn:Disconnect(); spinConn = nil end
+end
+
+-- tpose (moonwalk whatever)
+local function applyTPose(on)
+    local c = getChar()
+    if not c then return end
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if on then
+        hum.AutoRotate = false
+        tposeConn = RunService.Heartbeat:Connect(function()
+            local ch = getChar()
+            if not ch then return end
+            for _, m in ipairs(ch:GetDescendants()) do
+                if m:IsA("Motor6D") then
+                    m.DesiredAngle = 0
+                end
+            end
+        end)
+    else
+        if tposeConn then tposeConn:Disconnect(); tposeConn = nil end
+        if hum then hum.AutoRotate = true end
+    end
+end
+
+-- fullbright (so you can see in the dark)
+local function applyFullbright(on)
+    if on then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                v.Enabled = false
+            end
+        end
+    else
+        Lighting.Ambient = originalAmbient
+        Lighting.Brightness = originalBrightness
+        Lighting.OutdoorAmbient = originalOutdoorAmbient
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                v.Enabled = true
+            end
+        end
+    end
+end
+
+-- alt fullbright (less intense)
+local function applyAltFullbright(on)
+    if on then
+        Lighting.Ambient = Color3.fromRGB(180, 180, 180)
+        Lighting.Brightness = 1.2
+        Lighting.OutdoorAmbient = Color3.fromRGB(180, 180, 180)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                v.Enabled = false
+            end
+        end
+    else
+        if FullbrightEnabled then
+            applyFullbright(true)
+        else
+            Lighting.Ambient = originalAmbient
+            Lighting.Brightness = originalBrightness
+            Lighting.OutdoorAmbient = originalOutdoorAmbient
+            for _, v in ipairs(Lighting:GetChildren()) do
+                if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                    v.Enabled = true
+                end
+            end
+        end
+    end
+end
+
+-- respawn loop (for fun lagger)
+local function startRespawnLoop()
+    if respawnLoopConnection then return end
+    respawnLoopConnection = RunService.Heartbeat:Connect(function()
+        if not RespawnLoopEnabled then return end
+        local hum = getHum()
+        if hum and hum.Health > 0 then
+            hum.Health = 0
+        end
+    end)
+end
+
+local function stopRespawnLoop()
+    if respawnLoopConnection then
+        respawnLoopConnection:Disconnect()
+        respawnLoopConnection = nil
+    end
+end
+
+-- notification helper (shows popups)
+local function notify(title, desc, duration)
+    WindUI:Notify({
+        Title = title,
+        Desc = desc,
+        Duration = duration or 4,
+        Icon = "bell",
+    })
+end
+
+-- =============================================
+-- TABS (Automation only in other game; Teleports only in Dandy's World)
+-- =============================================
+local LocalPlayerTab = Window:Tab({ Title = "Local Player", Icon = "user" })
+local EnvironmentTab = Window:Tab({ Title = "Environment", Icon = "sun" })
+local VisualsTab = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local FunTab = Window:Tab({ Title = "Fun", Icon = "smile" })
+local ScriptsTab = Window:Tab({ Title = "Scripts", Icon = "code" })
+local ClientSidedTab = Window:Tab({ Title = "Client Sided", Icon = "monitor" })
+local CreditsTab = Window:Tab({ Title = inDandysWorld and "Info" or "Credits", Icon = "star" })
+
+-- Automation tab: ONLY in the other game
+local AutomationTab = nil
+if not inDandysWorld then
+    AutomationTab = Window:Tab({ Title = "Automation", Icon = "cpu" })
+end
+
+-- Teleports tab: ONLY in Dandy's World
+local TeleportsTab = nil
+if inDandysWorld then
+    TeleportsTab = Window:Tab({ Title = "Teleports", Icon = "map-pin" })
+end
+
+-- =============================================
+-- LOCAL PLAYER TAB
+-- =============================================
+if not inDandysWorld then
+    LocalPlayerTab:Slider({
+        Title = "Hip Height",
+        Desc = "Adjusts your character's hip height",
+        Step = 0.1,
+        Value = { Min = 1, Max = 17, Default = 2 },
+        Callback = function(value)
+            local h = getHum()
+            if h then h.HipHeight = value end
+        end,
+    })
+end
+
+LocalPlayerTab:Toggle({
+    Title = "Loop Speed",
+    Desc = "Continuously applies your walk speed",
+    Value = false,
+    Callback = function(state)
+        LoopSpeedEnabled = state
+        if not state then
+            local h = getHum()
+            if h then h.WalkSpeed = 16 end
+        end
+    end,
+})
+
+LocalPlayerTab:Slider({
+    Title = "Loop Speed Value",
+    Desc = "Set the walk speed amount",
+    Step = 1,
+    Value = { Min = 1, Max = 200, Default = 16 },
+    Callback = function(value)
+        LoopSpeedValue = value
+    end,
+})
+
+-- ADVANCED NOCLIP TOGGLE
+local NoclipEnabled = false
+local NoclipConnection = nil
+local CharacterAddedConnection = nil
+
+local function applyNoclipOnParts(character)
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            for _, conn in ipairs(getconnections(part:GetPropertyChangedSignal("CanQuery"))) do conn:Disconnect() end
+            for _, conn in ipairs(getconnections(part:GetPropertyChangedSignal("CanCollide"))) do conn:Disconnect() end
+            for _, conn in ipairs(getconnections(part:GetPropertyChangedSignal("CanTouch"))) do conn:Disconnect() end
+            for _, conn in ipairs(getconnections(part.Changed)) do conn:Disconnect() end
+            part.CanCollide = false
+        end
+    end
+end
+
+local function enableNoclip()
+    local character = LocalPlayer.Character
+    if character then
+        applyNoclipOnParts(character)
+    end
+    if not NoclipConnection then
+        NoclipConnection = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+    if not CharacterAddedConnection then
+        CharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(newChar)
+            if NoclipEnabled then
+                task.wait(0.1)
+                applyNoclipOnParts(newChar)
+            end
+        end)
+    end
+end
+
+local function disableNoclip()
+    if NoclipConnection then
+        NoclipConnection:Disconnect()
+        NoclipConnection = nil
+    end
+    if CharacterAddedConnection then
+        CharacterAddedConnection:Disconnect()
+        CharacterAddedConnection = nil
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+LocalPlayerTab:Toggle({
+    Title = "Noclip",
+    Desc = "Phase through walls, floors, and objects (disables collision signals)",
+    Value = false,
+    Callback = function(state)
+        NoclipEnabled = state
+        if state then
+            enableNoclip()
+            notify("Noclip", "Enabled. Collision signals disconnected.")
+        else
+            disableNoclip()
+            notify("Noclip", "Disabled. Collisions restored.")
+        end
+    end,
+})
+
+-- INFINITE STAMINA (only in the other game)
+if game.PlaceId == 16552821455 then
+    local plrsrv = game:GetService("Players")
+    local replicated = game:GetService("ReplicatedStorage")
+    local userinputservice = game:GetService("UserInputService")
+    local plr = plrsrv.LocalPlayer
+    local localcharacter = plr.Character or plr.CharacterAdded:Wait()
+    local plrgui = plr:WaitForChild("PlayerGui")
+    local screengui = plrgui:FindFirstChild("ScreenGui")
+
+    local sprintevent = replicated.Events:WaitForChild("SprintEvent")
+    local updateLoop = nil
+    local updateEnabled = false
+    local sprinting = localcharacter.Stats.Sprinting
+
+    local serversidesprint = nil
+
+    function looprunspeed()
+        localcharacter.Humanoid.WalkSpeed = plr:GetAttribute("KM_MAX_PLAYER_SPEED")
+        sprinting.Value = updateEnabled
+        if not updateLoop then
+            updateLoop = coroutine.create(function()
+                while updateEnabled do
+                    localcharacter.Humanoid.WalkSpeed = plr:GetAttribute("KM_MAX_PLAYER_SPEED")
+                    sprinting.Value = updateEnabled
+                    task.wait()
+                end
+            end)
+        end
+        coroutine.resume(updateLoop)
+    end
+
+    function enablelooprunspeed()
+        updateEnabled = true
+        localcharacter.Humanoid.WalkSpeed = plr:GetAttribute("KM_MAX_PLAYER_SPEED")
+        sprinting.Value = updateEnabled
+    end
+
+    local walkspeed = 0
+    function disablelooprunspeed()
+        updateEnabled = false
+        if walkspeed ~= 0 and serversidesprint == false then
+            localcharacter.Humanoid.WalkSpeed = walkspeed
+        end
+        sprinting.Value = updateEnabled
+    end
+
+    for i, connection in pairs(getconnections(sprintevent.OnClientEvent)) do
+        connection:Disable()
+    end
+
+    sprintevent.OnClientEvent:Connect(function(arg1)
+        serversidesprint = false
+        walkspeed = localcharacter.Humanoid.WalkSpeed
+        enablelooprunspeed()
+    end)
+
+    for i, connection in pairs(getconnections(screengui.MobileRun.Activated)) do
+        connection:Disable()
+    end
+
+    screengui.MobileRun.Activated:Connect(function()
+        if screengui.MobileRun.TextLabel.Text == "SPRINT: OFF" then
+            screengui.MobileRun.TextLabel.Text = "SPRINT: ON"
+            screengui.MobileRun.Image = "rbxassetid://11866539249"
+            sprintevent:FireServer(true)
+            serversidesprint = true
+            screengui.SprintIcon.Visible = false
+            enablelooprunspeed()
+            return
+        end
+        disablelooprunspeed()
+        screengui.MobileRun.TextLabel.Text = "SPRINT: OFF"
+        screengui.MobileRun.Image = "rbxassetid://11866517702"
+        screengui.SprintIcon.Visible = false
+        sprintevent:FireServer(false)
+        serversidesprint = false
+    end)
+
+    local isprocessed = false
+    userinputservice.InputBegan:Connect(function(inputobj, processevent)
+        if processevent then return end
+        if inputobj.KeyCode == Enum.KeyCode.ButtonR1 then
+            if isprocessed then return end
+            enablelooprunspeed()
+            serversidesprint = true
+            isprocessed = true
+        end
+    end)
+
+    userinputservice.InputEnded:Connect(function(inputobj, processevent)
+        if processevent then return end
+        if inputobj.KeyCode == Enum.KeyCode.ButtonR1 then
+            disablelooprunspeed()
+            sprintevent:FireServer(false)
+            serversidesprint = false
+            isprocessed = false
+        end
+    end)
+
+    userinputservice.InputBegan:Connect(function(inputobj, processevent)
+        if processevent then return end
+        if inputobj.KeyCode == Enum.KeyCode.LeftShift then
+            enablelooprunspeed()
+            serversidesprint = true
+            sprintevent:FireServer(true)
+        end
+    end)
+
+    userinputservice.InputEnded:Connect(function(inputobj, processevent)
+        if processevent then return end
+        if inputobj.KeyCode == Enum.KeyCode.LeftShift then
+            disablelooprunspeed()
+            sprintevent:FireServer(false)
+            serversidesprint = false
+        end
+    end)
+
+    plr.CharacterAdded:Connect(function(newChar)
+        localcharacter = newChar
+        sprinting = localcharacter.Stats.Sprinting
+        if updateEnabled then
+            enablelooprunspeed()
+        end
+    end)
+
+    LocalPlayerTab:Toggle({
+        Title = "Infinite Stamina",
+        Desc = "You can see your actual stamina too thanks to abelsrighthand on discord",
+        Value = false,
+        Callback = function(state)
+            if state then
+                updateEnabled = true
+                enablelooprunspeed()
+                notify("Infinite Stamina", "Enabled.")
+            else
+                disablelooprunspeed()
+                notify("Infinite Stamina", "Disabled.")
+            end
+        end,
+    })
+end
+
+LocalPlayerTab:Button({
+    Title = "Freecam",
+    Desc = "Enables free camera movement",
+    Callback = function()
+        loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Free-Camera-61238"))()
+    end,
+})
+
+LocalPlayerTab:Section({ Title = "Teleport to Player" })
+local targetPlayerName = ""
+local teleportCooldown = false
+LocalPlayerTab:Input({
+    Title = "Target Player Name",
+    Desc = "Enter exact or partial player name",
+    Placeholder = "Enter name...",
+    Callback = function(input)
+        targetPlayerName = input
+    end,
+})
+LocalPlayerTab:Button({
+    Title = "Teleport (5s cooldown)",
+    Desc = "Teleport to the entered player",
+    Callback = function()
+        if teleportCooldown then
+            notify("Cooldown", "Wait 5 seconds before teleporting again!")
+            return
+        end
+        local target
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Name:lower():find(targetPlayerName:lower(), 1, true) then
+                target = p; break
+            end
+        end
+        if target and target.Character then
+            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            local mHRP = getHRP()
+            if tHRP and mHRP then
+                mHRP.CFrame = tHRP.CFrame + Vector3.new(3, 0, 0)
+                teleportCooldown = true
+                notify("Teleported!", "Jumped to " .. target.Name)
+                task.delay(5, function() teleportCooldown = false end)
+                return
+            end
+        end
+        notify("Error", "Player '" .. targetPlayerName .. "' not found.")
+    end,
+})
+
+-- =============================================
+-- AUTOMATION TAB (only in the other game)
+-- =============================================
+if AutomationTab then
+    -- Auto Barnaby button
+    AutomationTab:Button({
+        Title = "Auto Barnaby (Lobby Anti die) (Manually)",
+        Desc = "Press this before starting a game",
+        Callback = function()
+            getgenv().scoretostartwith = 99
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/christmas-cookie/extensions/refs/heads/main/freebarnaby", true))()
+            notify("Barnaby Points", "Attempted to set points to 99")
+        end,
+    })
+
+    -- Auto Skill Check
+    getgenv().scinstant = false
+
+    local skillCheckEvent = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("SkillcheckUpdate")
+    if skillCheckEvent then
+        local ogcb = getcallbackvalue(skillCheckEvent, "OnClientInvoke")
+        local ts = TweenService
+        local ti = TweenInfo.new(1.5, Enum.EasingStyle.Linear)
+
+        if ogcb then
+            local hook
+            hook = hookfunction(ogcb, function(...)
+                if getgenv().scinstant then
+                    task.spawn(function()
+                        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                        if not playerGui then return end
+                        local screenGui = playerGui:FindFirstChild("ScreenGui")
+                        if not screenGui then return end
+                        local menu = screenGui:FindFirstChild("Menu")
+                        if not menu then return end
+
+                        local correctSound = menu:FindFirstChild("Correct")
+                        if correctSound then
+                            correctSound:Stop()
+                            correctSound:Play()
+                        end
+
+                        local goldAreaHit = menu:FindFirstChild("GoldAreaHit")
+                        if goldAreaHit then
+                            goldAreaHit:Stop()
+                            goldAreaHit:Play()
+                        end
+
+                        local msg = menu:FindFirstChild("SkillCheckMessage")
+                        if msg then
+                            local gradient = msg:FindFirstChild("UIGradient")
+                            if gradient then gradient.Enabled = false end
+                            msg.Text = "Great Job!"
+                            local gradientWin = msg:FindFirstChild("UIGradientWin")
+                            if gradientWin then gradientWin.Enabled = true end
+                            msg.Visible = true
+                        end
+
+                        task.wait(1.5)
+
+                        if msg then
+                            local tween = ts:Create(msg, ti, { TextTransparency = 1 })
+                            tween:Play()
+                            tween.Completed:Wait()
+                            msg.Visible = false
+                            msg.TextTransparency = 0
+                        end
+                    end)
+                    return "supercomplete"
+                end
+                return hook(...)
+            end)
+            print("Instant Skillcheck hooked successfully")
+        else
+            warn("Failed to get original OnClientInvoke")
+        end
+    else
+        warn("SkillcheckUpdate event not found")
+    end
+
+    AutomationTab:Toggle({
+        Title = "Auto Skill Check",
+        Desc = "Turns on Auto Calibration",
+        Value = false,
+        Callback = function(state)
+            getgenv().scinstant = state
+            if state then
+                notify("Auto Skill Check", "Enabled. Skill checks will auto-complete.")
+            else
+                notify("Auto Skill Check", "Disabled.")
+            end
+        end,
+    })
+
+    -- Auto Escape Squirm toggle
+    local autoEscapeSquirmEnabled = false
+    local autoEscapeSquirmLoop = nil
+    local autoSquirmRemote = nil
+    local autostrugglerunning = false
+    local squirmdir = "left"
+
+    task.spawn(function()
+        local events = ReplicatedStorage:FindFirstChild("Events")
+        if not events then return end
+        local remote = events:FindFirstChild("TwistedSquirmGrab")
+        if not remote then
+            warn("TwistedSquirmGrab remote not found – Auto Escape Squirm will not work.")
+            return
+        end
+        autoSquirmRemote = remote
+
+        remote.OnClientEvent:Connect(function(action)
+            if action == "GrabStart" then
+                autostrugglerunning = true
+            elseif action == "GrabEnd" then
+                autostrugglerunning = false
+            end
+        end)
+
+        autoEscapeSquirmLoop = task.spawn(function()
+            while true do
+                task.wait(0.06)
+                if autoEscapeSquirmEnabled and autostrugglerunning and autoSquirmRemote then
+                    if squirmdir == "left" then
+                        autoSquirmRemote:FireServer("Struggle", "left")
+                        squirmdir = "right"
+                    else
+                        autoSquirmRemote:FireServer("Struggle", "right")
+                        squirmdir = "left"
+                    end
+                end
+            end
+        end)
+    end)
+
+    AutomationTab:Toggle({
+        Title = "Auto Escape Squirm",
+        Desc = "Automatically struggles left/right when grabbed (Dandy's World)",
+        Value = false,
+        Callback = function(state)
+            autoEscapeSquirmEnabled = state
+            if state then
+                notify("Auto Escape Squirm", "Enabled. Will struggle automatically.")
+            else
+                notify("Auto Escape Squirm", "Disabled.")
+            end
+        end,
+    })
+end
+
+-- =============================================
+-- ENVIRONMENT TAB
+-- =============================================
+EnvironmentTab:Toggle({
+    Title = "Fullbright",
+    Desc = "Maxes out lighting so you can see everything",
+    Value = false,
+    Callback = function(state)
+        FullbrightEnabled = state
+        if state then
+            if AltFullbrightEnabled then
+                AltFullbrightEnabled = false
+                pcall(function() EnvironmentTab:SetToggle("AltFullbright", false) end)
+                applyAltFullbright(false)
+            end
+            applyFullbright(true)
+        else
+            applyFullbright(false)
+        end
+    end,
+})
+
+EnvironmentTab:Toggle({
+    Title = "Alt Fullbright",
+    Desc = "Brighter but less intense than Fullbright",
+    Value = false,
+    Flag = "AltFullbright",
+    Callback = function(state)
+        AltFullbrightEnabled = state
+        if state then
+            if FullbrightEnabled then
+                FullbrightEnabled = false
+                pcall(function() EnvironmentTab:SetToggle("Fullbright", false) end)
+                applyFullbright(false)
+            end
+            applyAltFullbright(true)
+        else
+            applyAltFullbright(false)
+        end
+    end,
+})
+
+EnvironmentTab:Slider({
+    Title = "FOV",
+    Desc = "Adjust your camera field of view",
+    Step = 1,
+    Value = { Min = 60, Max = 120, Default = 70 },
+    Callback = function(value)
+        local cam = Workspace.CurrentCamera
+        if cam then cam.FieldOfView = value end
+    end,
+})
+
+EnvironmentTab:Button({
+    Title = "Disable Rendering",
+    Desc = "Executes disable rendering script",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/xneo-debug/Rendering/refs/heads/main/Disable%20rendering"))()
+    end,
+})
+
+-- =============================================
+-- VISUALS TAB (Stats Faker removed)
+-- =============================================
+
+-- ANTI LAG
+local antiLagEnabled = false
+local antiLagConnection = nil
+
+local function applyAntiLag(part)
+    if part:IsA("BasePart") then
+        part.Material = Enum.Material.SmoothPlastic
+    elseif part:IsA("Decal") or part:IsA("Texture") then
+        part:Destroy()
+    end
+end
+
+local function enableAntiLag()
+    if antiLagEnabled then return end
+    antiLagEnabled = true
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        applyAntiLag(part)
+    end
+    if not antiLagConnection then
+        antiLagConnection = Workspace.DescendantAdded:Connect(applyAntiLag)
+    end
+    notify("Anti Lag", "Enabled. Materials changed and decals removed.")
+end
+
+local function disableAntiLag()
+    antiLagEnabled = false
+    if antiLagConnection then
+        antiLagConnection:Disconnect()
+        antiLagConnection = nil
+    end
+    notify("Anti Lag", "Disabled. Existing changes remain (cannot revert automatically).")
+end
+
+VisualsTab:Toggle({
+    Title = "Anti Lag",
+    Desc = "Changes materials to SmoothPlastic and removes decals/textures",
+    Value = false,
+    Callback = function(state)
+        if state then
+            enableAntiLag()
+        else
+            disableAntiLag()
+        end
+    end,
+})
+
+-- OTHER VISUALS (only in the other game)
+if not inDandysWorld then
+    -- TWISTED ESP
+    local TWISTED_DATA = {
+        BoxtenMonster = "Common", BrushaMonster = "Common", CosmoMonster = "Common", EggsonMonster = "Common",
+        LooeyMonster = "Common", PoppyMonster = "Common", RibbecaMonster = "Common", RudieMonster = "Common",
+        ShrimpoMonster = "Common", TishaMonster = "Common", YattaMonster = "Common", FakeCapsule = "Common",
+        BrightneyMonster = "Uncommon", ConnieMonster = "Uncommon", FinnMonster = "Uncommon", FlyteMonster = "Uncommon",
+        GingerMonster = "Uncommon", RazzleDazzleMonster = "Uncommon", RodgerMonster = "Uncommon", SoulvesterMonster = "Uncommon",
+        TeaganMonster = "Uncommon", ToodlesMonster = "Uncommon", BlotMonster = "Rare", CoalMonster = "Rare",
+        CocoaMonster = "Rare", EclipseMonster = "Rare", FlutterMonster = "Rare", GigiMonster = "Rare",
+        GlistenMonster = "Rare", GoobMonster = "Rare", ScrapsMonster = "Rare", SquirmMonster = "Rare",
+        AstroMonster = "Main", BassieMonster = "Main", BobetteMonster = "Main", GourdyMonster = "Main",
+        PebbleMonster = "Main", ShellyMonster = "Main", SproutMonster = "Main", VeeMonster = "Main",
+        DandyMonster = "Lethal", DyleMonster = "Lethal",
+    }
+    local rarityTextColors = {
+        Common = Color3.fromRGB(255,255,255), Uncommon = Color3.fromRGB(180,180,180),
+        Rare = Color3.fromRGB(80,140,255), Main = Color3.fromRGB(80,220,80), Lethal = Color3.fromRGB(220,0,0),
+    }
+    local COOLDOWN_MONSTERS = { GoobMonster = 10, SproutMonster = 10, AstroMonster = 10, BassieMonster = 10, ScrapsMonster = 12, GigiMonster = 12 }
+    local cooldownTimers = {}
+
+    local function clearESP()
+        for _, obj in ipairs(espObjects) do if obj and obj.Parent then obj:Destroy() end end
+        espObjects = {}
+    end
+
+    local function applyESP(model, twistedName, rarity)
+        local greenTwisteds = { BobetteMonster=true, RudieMonster=true, GingerMonster=true, CoalMonster=true }
+        local purpleTwisteds = { BassieMonster=true, CocoaMonster=true, EggsonMonster=true, FlyteMonster=true }
+        local orangeTwisteds = { GourdyMonster=true, EclipseMonster=true, RibbecaMonster=true, SoulvesterMonster=true }
+        local blackTwisteds = { DandyMonster=true, DyleMonster=true }
+        local fillColor, outlineColor
+        if blackTwisteds[twistedName] then
+            fillColor = Color3.fromRGB(10,10,10); outlineColor = Color3.fromRGB(0,0,0)
+        elseif greenTwisteds[twistedName] then
+            fillColor = Color3.fromRGB(80,220,80); outlineColor = Color3.fromRGB(255,255,255)
+        elseif purpleTwisteds[twistedName] then
+            fillColor = Color3.fromRGB(180,80,255); outlineColor = Color3.fromRGB(255,255,255)
+        elseif orangeTwisteds[twistedName] then
+            fillColor = Color3.fromRGB(255,160,50); outlineColor = Color3.fromRGB(255,255,255)
+        else
+            fillColor = Color3.fromRGB(220,40,40); outlineColor = Color3.fromRGB(255,255,255)
+        end
+        local hl = Instance.new("Highlight")
+        hl.FillColor = fillColor; hl.OutlineColor = outlineColor; hl.FillTransparency = 0.4; hl.OutlineTransparency = 0
+        hl.Adornee = model; hl.Parent = model; table.insert(espObjects, hl)
+        local rootPart = model:IsA("Model") and (model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")) or model
+        if not rootPart then return end
+        local bb = Instance.new("BillboardGui")
+        bb.Adornee = rootPart; bb.AlwaysOnTop = true; bb.Size = UDim2.new(0,200,0,55); bb.StudsOffset = Vector3.new(0,5,0); bb.Parent = rootPart
+        local displayName = (twistedName == "FakeCapsule") and "Fake Capsule" or twistedName:gsub("Monster","")
+        local mainLabel = Instance.new("TextLabel")
+        mainLabel.Size = UDim2.new(1,0,0.5,0); mainLabel.Position = UDim2.new(0,0,0,0); mainLabel.BackgroundTransparency = 1
+        if twistedName == "FakeCapsule" then
+            mainLabel.Text = "Fake Capsule"
+        else
+            mainLabel.Text = "Twisted " .. displayName .. " | " .. rarity
+        end
+        if twistedName == "FinnMonster" then mainLabel.TextColor3 = Color3.fromRGB(255,215,0) else mainLabel.TextColor3 = rarityTextColors[rarity] or Color3.new(1,1,1) end
+        mainLabel.TextStrokeTransparency = 0; mainLabel.TextStrokeColor3 = Color3.new(0,0,0); mainLabel.Font = Enum.Font.GothamBold; mainLabel.TextSize = 11; mainLabel.TextScaled = false; mainLabel.Parent = bb
+        local cooldownDuration = COOLDOWN_MONSTERS[twistedName]
+        if cooldownDuration then
+            local cooldownLabel = Instance.new("TextLabel")
+            cooldownLabel.Size = UDim2.new(1,0,0.4,0); cooldownLabel.Position = UDim2.new(0,0,0.5,0); cooldownLabel.BackgroundTransparency = 1
+            cooldownLabel.Text = "CD: Ready"; cooldownLabel.TextColor3 = Color3.fromRGB(80,255,80); cooldownLabel.TextStrokeTransparency = 0; cooldownLabel.TextStrokeColor3 = Color3.new(0,0,0)
+            cooldownLabel.Font = Enum.Font.GothamBold; cooldownLabel.TextSize = 10; cooldownLabel.TextScaled = false; cooldownLabel.Parent = bb
+            local key = model:GetFullName()
+            if not cooldownTimers[key] then cooldownTimers[key] = { active = false, timeLeft = 0 } end
+            local timer = cooldownTimers[key]
+            local hum = model:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.HealthChanged:Connect(function()
+                    if not timer.active then timer.active = true; timer.timeLeft = cooldownDuration end
+                end)
+            end
+            local conn; conn = RunService.Heartbeat:Connect(function(dt)
+                if not TwistedsESPEnabled or not bb.Parent then conn:Disconnect(); return end
+                if timer.active then
+                    timer.timeLeft = math.max(0, timer.timeLeft - dt)
+                    if timer.timeLeft <= 0 then
+                        timer.active = false
+                        if cooldownLabel then cooldownLabel.Text = "CD: Ready"; cooldownLabel.TextColor3 = Color3.fromRGB(80,255,80) end
+                    else
+                        if cooldownLabel then cooldownLabel.Text = "CD: " .. string.format("%.1f", timer.timeLeft) .. "s"; cooldownLabel.TextColor3 = Color3.fromRGB(255,100,100) end
+                    end
+                else
+                    if cooldownLabel and not timer.active then cooldownLabel.Text = "CD: Ready"; cooldownLabel.TextColor3 = Color3.fromRGB(80,255,80) end
+                end
+            end)
+            table.insert(espObjects, conn)
+        end
+        table.insert(espObjects, bb)
+    end
+
+    local espTimer = 0
+    RunService.Heartbeat:Connect(function(dt)
+        if not TwistedsESPEnabled then return end
+        espTimer = espTimer + dt
+        if espTimer < 1 then return end
+        espTimer = 0
+        clearESP()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            local rarity = TWISTED_DATA[obj.Name]
+            if rarity then applyESP(obj, obj.Name, rarity) end
+        end
+    end)
+
+    VisualsTab:Toggle({
+        Title = "Twisted ESP",
+        Desc = "Red highlight + name label + cooldown timers (Goob, Sprout, Astro, Bassie, Scraps, Gigi)",
+        Value = false,
+        Callback = function(state) TwistedsESPEnabled = state; if not state then clearESP() end end,
+    })
+
+    -- PLAYER ESP
+    local PlayerESPEnabled = false; local playerESPObjects = {}
+    local DANDYS_WORLD_ID = 16116270224
+    local function clearPlayerESP() for _, obj in ipairs(playerESPObjects) do if obj and obj.Parent then obj:Destroy() end end; playerESPObjects = {} end
+    local function getPlayerHearts(player) local char = player.Character; if not char then return 0 end; local hum = char:FindFirstChildOfClass("Humanoid"); return hum and math.floor(hum.Health) or 0 end
+    local function applyPlayerESP(player)
+        local char = player.Character; if not char or player == LocalPlayer then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+        local hum = char:FindFirstChildOfClass("Humanoid"); local hp = hum and math.floor(hum.Health) or 0
+        local inDandysWorld = game.PlaceId == DANDYS_WORLD_ID
+        local fillColor, outlineColor
+        if inDandysWorld then
+            fillColor = Color3.fromRGB(0,100,255); outlineColor = Color3.fromRGB(100,180,255)
+        elseif hp >= 4 then
+            fillColor = Color3.fromRGB(0,100,255); outlineColor = Color3.fromRGB(100,180,255)
+        elseif hp == 3 then
+            fillColor = Color3.fromRGB(0,100,255); outlineColor = Color3.fromRGB(100,180,255)
+        elseif hp == 2 then
+            fillColor = Color3.fromRGB(0,0,160); outlineColor = Color3.fromRGB(0,50,200)
+        elseif hp == 1 then
+            fillColor = Color3.fromRGB(10,10,10); outlineColor = Color3.fromRGB(50,50,50)
+        else
+            fillColor = Color3.fromRGB(10,10,10); outlineColor = Color3.fromRGB(50,50,50)
+        end
+        local hl = Instance.new("Highlight")
+        hl.FillColor = fillColor; hl.OutlineColor = outlineColor; hl.FillTransparency = 0.4; hl.OutlineTransparency = 0
+        hl.Adornee = char; hl.Parent = char; table.insert(playerESPObjects, hl)
+        local bb = Instance.new("BillboardGui")
+        bb.Adornee = hrp; bb.AlwaysOnTop = true; bb.Size = UDim2.new(0,220,0,70); bb.StudsOffset = Vector3.new(0,3.5,0); bb.Parent = hrp
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1,0,1,0); frame.BackgroundTransparency = 1; frame.Parent = bb
+        if inDandysWorld then
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1,0,0.5,0); nameLabel.Position = UDim2.new(0,0,0,0); nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name; nameLabel.TextColor3 = Color3.fromRGB(100,180,255); nameLabel.TextStrokeTransparency = 0; nameLabel.TextStrokeColor3 = Color3.new(0,0,0)
+            nameLabel.Font = Enum.Font.GothamBold; nameLabel.TextScaled = true; nameLabel.Parent = frame
+            local dispLabel = Instance.new("TextLabel")
+            dispLabel.Size = UDim2.new(1,0,0.5,0); dispLabel.Position = UDim2.new(0,0,0.5,0); dispLabel.BackgroundTransparency = 1
+            dispLabel.Text = player.DisplayName; dispLabel.TextColor3 = Color3.new(1,1,1); dispLabel.TextStrokeTransparency = 0; dispLabel.TextStrokeColor3 = Color3.new(0,0,0)
+            dispLabel.Font = Enum.Font.Gotham; dispLabel.TextScaled = true; dispLabel.Parent = frame
+        else
+            local heartStr = hp <= 0 and "💀 Dead" or string.rep("♥", hp) .. string.rep("♡", 4 - math.min(hp, 4))
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1,0,0.5,0); nameLabel.Position = UDim2.new(0,0,0,0); nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name .. "  " .. heartStr; nameLabel.TextColor3 = hp <= 0 and Color3.new(1,1,1) or fillColor
+            nameLabel.TextStrokeTransparency = 0; nameLabel.TextStrokeColor3 = Color3.new(0,0,0); nameLabel.Font = Enum.Font.GothamBold; nameLabel.TextScaled = true; nameLabel.Parent = frame
+            local hpLabel = Instance.new("TextLabel")
+            hpLabel.Size = UDim2.new(1,0,0.5,0); hpLabel.Position = UDim2.new(0,0,0.5,0); hpLabel.BackgroundTransparency = 1
+            hpLabel.Text = hp <= 0 and "Dead" or ("Hearts: " .. hp .. "/4"); hpLabel.TextColor3 = Color3.new(1,1,1)
+            hpLabel.TextStrokeTransparency = 0; hpLabel.TextStrokeColor3 = Color3.new(0,0,0); hpLabel.Font = Enum.Font.Gotham; hpLabel.TextScaled = true; hpLabel.Parent = frame
+        end
+        table.insert(playerESPObjects, bb)
+    end
+    local playerESPTimer = 0
+    RunService.Heartbeat:Connect(function(dt)
+        if not PlayerESPEnabled then return end
+        playerESPTimer = playerESPTimer + dt
+        if playerESPTimer < 0.5 then return end
+        playerESPTimer = 0
+        clearPlayerESP()
+        for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then applyPlayerESP(p) end end
+    end)
+    VisualsTab:Toggle({
+        Title = "Player ESP",
+        Desc = "Blue highlight on players — color changes with hearts",
+        Value = false,
+        Callback = function(state) PlayerESPEnabled = state; if not state then clearPlayerESP() end end,
+    })
+
+    -- GENERATOR ESP
+    local GeneratorESPEnabled = false
+    local generatorESPObjects = {}
+
+    local function isGeneratorPart(part)
+        local parent = part.Parent
+        while parent do
+            if parent.Name == "Generators" then
+                return true
+            end
+            parent = parent.Parent
+        end
+        return false
+    end
+
+    local function clearGeneratorESP()
+        for _, obj in ipairs(generatorESPObjects) do
+            if obj and obj.Parent then obj:Destroy() end
+        end
+        generatorESPObjects = {}
+    end
+
+    local function applyGeneratorESP(part)
+        local hl = Instance.new("Highlight")
+        hl.FillColor = Color3.fromRGB(0, 0, 0)
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+        hl.FillTransparency = 0.3
+        hl.OutlineTransparency = 0
+        hl.Adornee = part
+        hl.Parent = part
+        table.insert(generatorESPObjects, hl)
+    end
+
+    local generatorESPTimer = 0
+    RunService.Heartbeat:Connect(function(dt)
+        if not GeneratorESPEnabled then return end
+        generatorESPTimer = generatorESPTimer + dt
+        if generatorESPTimer < 1 then return end
+        generatorESPTimer = 0
+        clearGeneratorESP()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and isGeneratorPart(obj) then
+                applyGeneratorESP(obj)
+            end
+        end
+    end)
+
+    VisualsTab:Toggle({
+        Title = "Generator ESP",
+        Desc = "Black highlight + white outline on generators (no text)",
+        Value = false,
+        Callback = function(state)
+            GeneratorESPEnabled = state
+            if not state then clearGeneratorESP() end
+        end,
+    })
+
+    -- TENDRIL/HAND/ICHORPUDDLE/BARNABY ESP
+    local TendrilESPEnabled = false
+    local tendrilESPObjects = {}
+
+    local SPECIAL_NAMES = {
+        SproutTendril = true,
+        BlotHand = true,
+        BlotHand_L = true,
+        BlotHand_R = true,
+        TBarnaby_v3 = true,
+        FinnIchorPuddle = true,
+    }
+
+    local function clearTendrilESP()
+        for _, obj in ipairs(tendrilESPObjects) do
+            if obj and obj.Parent then obj:Destroy() end
+        end
+        tendrilESPObjects = {}
+    end
+
+    local function applySpecialESP(part, specialName)
+        if specialName == "TBarnaby_v3" then
+            local hl = Instance.new("Highlight")
+            hl.FillColor = Color3.fromRGB(220,40,40)
+            hl.OutlineColor = Color3.fromRGB(255,255,255)
+            hl.FillTransparency = 0.3
+            hl.OutlineTransparency = 0
+            hl.Adornee = part
+            hl.Parent = part
+            table.insert(tendrilESPObjects, hl)
+
+            local bb = Instance.new("BillboardGui")
+            bb.Adornee = part
+            bb.AlwaysOnTop = true
+            bb.Size = UDim2.new(0,160,0,30)
+            bb.StudsOffset = Vector3.new(0,3,0)
+            bb.Parent = part
+
+            local bg = Instance.new("Frame")
+            bg.Size = UDim2.new(1,0,1,0)
+            bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
+            bg.BackgroundTransparency = 0.5
+            bg.BorderSizePixel = 0
+            bg.Parent = bb
+
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0,5)
+            corner.Parent = bg
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1,-4,1,0)
+            lbl.Position = UDim2.new(0,2,0,0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = specialName
+            lbl.TextColor3 = Color3.fromRGB(255,255,255)
+            lbl.TextStrokeTransparency = 0
+            lbl.TextStrokeColor3 = Color3.new(0,0,0)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 12
+            lbl.TextScaled = false
+            lbl.Parent = bg
+
+            table.insert(tendrilESPObjects, bb)
+
+        elseif specialName == "FinnIchorPuddle" then
+            local hl = Instance.new("Highlight")
+            hl.FillColor = Color3.fromRGB(255,255,255)
+            hl.OutlineColor = Color3.fromRGB(0,0,0)
+            hl.FillTransparency = 0.3
+            hl.OutlineTransparency = 0
+            hl.Adornee = part
+            hl.Parent = part
+            table.insert(tendrilESPObjects, hl)
+
+        else
+            local hl = Instance.new("Highlight")
+            hl.FillColor = Color3.fromRGB(220,40,40)
+            hl.OutlineColor = Color3.fromRGB(255,255,255)
+            hl.FillTransparency = 0.3
+            hl.OutlineTransparency = 0
+            hl.Adornee = part
+            hl.Parent = part
+            table.insert(tendrilESPObjects, hl)
+
+            local bb = Instance.new("BillboardGui")
+            bb.Adornee = part
+            bb.AlwaysOnTop = true
+            bb.Size = UDim2.new(0,160,0,30)
+            bb.StudsOffset = Vector3.new(0,3,0)
+            bb.Parent = part
+
+            local bg = Instance.new("Frame")
+            bg.Size = UDim2.new(1,0,1,0)
+            bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
+            bg.BackgroundTransparency = 0.5
+            bg.BorderSizePixel = 0
+            bg.Parent = bb
+
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0,5)
+            corner.Parent = bg
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1,-4,1,0)
+            lbl.Position = UDim2.new(0,2,0,0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = specialName
+            lbl.TextColor3 = Color3.fromRGB(255,255,255)
+            lbl.TextStrokeTransparency = 0
+            lbl.TextStrokeColor3 = Color3.new(0,0,0)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 12
+            lbl.TextScaled = false
+            lbl.Parent = bg
+
+            table.insert(tendrilESPObjects, bb)
+        end
+    end
+
+    local specialESPTimer = 0
+    RunService.Heartbeat:Connect(function(dt)
+        if not TendrilESPEnabled then return end
+        specialESPTimer = specialESPTimer + dt
+        if specialESPTimer < 1 then return end
+        specialESPTimer = 0
+        clearTendrilESP()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if SPECIAL_NAMES[obj.Name] and obj:IsA("BasePart") then
+                applySpecialESP(obj, obj.Name)
+            end
+        end
+    end)
+
+    VisualsTab:Toggle({
+        Title = "Tendril/Hand/IchorPuddle/Barnaby ESP",
+        Desc = "Highlights SproutTendril, BlotHand, BlotHand_L, BlotHand_R, TBarnaby_v3, FinnIchorPuddle",
+        Value = false,
+        Callback = function(state)
+            TendrilESPEnabled = state
+            if not state then clearTendrilESP() end
+        end,
+    })
+
+    -- ANTI VEE POPUPS
+    local antiVeePopupsEnabled = false
+    local popupOriginalVisibility = {}
+
+    local function hasProperty(object, propertyName)
+        local success, _ = pcall(function()
+            object[propertyName] = object[propertyName]
+        end)
+        return success
+    end
+
+    local function getScreengui()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then
+            return playerGui:FindFirstChild("ScreenGui")
+        end
+        return nil
+    end
+
+    local function applyAntiVeePopups(hide)
+        local sg = getScreengui()
+        if not sg then return end
+        local popup = sg:FindFirstChild("PopUp")
+        if not popup then return end
+        for _, child in ipairs(popup:GetChildren()) do
+            if hasProperty(child, "Visible") then
+                if hide then
+                    if popupOriginalVisibility[child] == nil then
+                        popupOriginalVisibility[child] = child.Visible
+                    end
+                    child.Visible = false
+                else
+                    if popupOriginalVisibility[child] ~= nil then
+                        child.Visible = popupOriginalVisibility[child]
+                    else
+                        child.Visible = true
+                    end
+                end
+            end
+        end
+    end
+
+    VisualsTab:Toggle({
+        Title = "Anti Vee Popups",
+        Desc = "Hides annoying popups (Vee) from the ScreenGui",
+        Value = false,
+        Callback = function(state)
+            antiVeePopupsEnabled = state
+            applyAntiVeePopups(state)
+            if state then
+                notify("Anti Vee Popups", "Popups hidden.")
+            else
+                notify("Anti Vee Popups", "Popups restored.")
+            end
+        end,
+    })
+end
+
+-- =============================================
+-- INFO / CREDITS TAB
+-- =============================================
+CreditsTab:Paragraph({ Title = "Made by spinning Shrimpo", Desc = "Find me on TikTok / YouTube / Root / Discord" })
+CreditsTab:Button({ Title = "My TikTok (Copy Link)", Desc = "Copies @spinningshrimpo TikTok link", Callback = function()
+    setclipboard("https://www.tiktok.com/@spinningshrimpo")
+    notify("Copied!", "TikTok link copied! @spinningshrimpo")
+end })
+CreditsTab:Button({ Title = "My YouTube (Copy Link)", Desc = "Copies @SpinningShrimpoOffical YouTube link", Callback = function()
+    setclipboard("https://www.youtube.com/@SpinningShrimpoOffical")
+    notify("Copied!", "YouTube link copied! @SpinningShrimpoOffical")
+end })
+CreditsTab:Button({ Title = "My Discord (Copy Link)", Desc = "Copies the Discord server invite link", Callback = function()
+    setclipboard("https://discord.gg/J6jMgVVfmC")
+    notify("Copied to clipboard", "Discord invite link copied!")
+end })
+
+-- =============================================
+-- FUN TAB
+-- =============================================
+FunTab:Toggle({
+    Title = "Spin",
+    Desc = "Spin your character continuously",
+    Value = false,
+    Callback = function(state) SpinEnabled = state; if state then startSpin() else stopSpin() end end,
+})
+FunTab:Slider({
+    Title = "Spin Speed",
+    Desc = "How fast you spin",
+    Step = 1,
+    Value = { Min = 0, Max = 1000, Default = 50 },
+    Callback = function(value) _G.SpinSpeed = value end,
+})
+FunTab:Button({
+    Title = "Fly (glitched)",
+    Desc = "Glitched backflip — funny on purpose",
+    Callback = function()
+        local hrp = getHRP(); local h = getHum()
+        if hrp and h then
+            h:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.spawn(function()
+                for _ = 1, 20 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(18), 0, 0)
+                    task.wait(0.02)
+                end
+            end)
+        end
+    end,
+})
+FunTab:Button({
+    Title = "Fly (glitched) ",
+    Desc = "Glitched frontflip — also funny on purpose",
+    Callback = function()
+        local hrp = getHRP(); local h = getHum()
+        if hrp and h then
+            h:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.spawn(function()
+                for _ = 1, 20 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(-18), 0, 0)
+                    task.wait(0.02)
+                end
+            end)
+        end
+    end,
+})
+FunTab:Toggle({
+    Title = "Moonwalk",
+    Desc = "Freezes your character's joint angles",
+    Value = false,
+    Callback = function(state) TPoseEnabled = state; applyTPose(state) end,
+})
+
+-- =============================================
+-- SCRIPTS TAB (Yatta's Crazy GUI removed)
+-- =============================================
+local scriptButtons = {
+    {"Boxten S*X GUI", "loadstring(game:HttpGet('https://raw.githubusercontent.com/Team-Noxious/Roblox/refs/heads/main/Loader.lua'))('Boxten Sex GUI')"},
+    {"Riddance (Requires a Key)", [[getgenv().element_load_delay = 0.1 getgenv().extensionload = false loadstring(game:HttpGet('https://raw.githubusercontent.com/riddance-club/script/refs/heads/main/loader.lua'))()]]},
+    {"Shrimpy Farm 0.0.5 (Requires a Key)", [[getgenv().autoload = true getgenv().configname = 'ShrimpyFarm0.0.5' loadstring(game:HttpGet('https://raw.githubusercontent.com/riddance-club/script/refs/heads/main/loader.lua'))()]]},
+    {"Glisten's Strip Farm", "loadstring(game:HttpGet('https://raw.githubusercontent.com/Team-Noxious/Roblox/refs/heads/main/Loader.lua'))('Glisten's Strip Club')"},
+    {"Old Riddance Autofarm", [[local s = game:HttpGet('https://api.luarmor.net/files/v3/loaders/49070d904c420087ca216a958ed26cca.lua') local r = loadstring(s) if typeof(r) == 'function' then pcall(r) else print('Failed to load DW autofarm', r) end]]},
+    -- Yatta's Crazy GUI removed
+}
+if not inDandysWorld then
+    table.insert(scriptButtons, {"Invisible", "loadstring(game:HttpGet('https://pastefy.app/czPN2IhR/raw'))()"})
+end
+
+for _, btn in ipairs(scriptButtons) do
+    ScriptsTab:Button({ Title = btn[1], Desc = "Loads " .. btn[1], Callback = function() loadstring(btn[2])() end })
+end
+
+-- =============================================
+-- CLIENT SIDED TAB (Title Faker only in Dandy's World)
+-- =============================================
+ClientSidedTab:Button({ Title = "Star Time Skins (Mains only)", Desc = "Loads Star Time client-sided skins", Callback = function() loadstring(game:HttpGet('https://raw.githubusercontent.com/Jsssiee/Dreamyyy/refs/heads/main/heydidyounotice1000-7'))() end })
+ClientSidedTab:Button({ Title = "CS Dandy", Desc = "Client-sided Dandy skin", Callback = function() loadstring(game:HttpGet("https://pastefy.app/ONZ1siGs/raw"))() end })
+ClientSidedTab:Button({ Title = "CS Skin Loader", Desc = "Client-sided skin loader", Callback = function() loadstring(game:HttpGet("https://pastefy.app/9p6is9Cd/raw"))() end })
+ClientSidedTab:Button({ Title = "CS Sticker?", Desc = "Client-sided sticker script", Callback = function() loadstring(game:HttpGet("https://pastefy.app/dhuCumuR/raw"))() end })
+ClientSidedTab:Button({ Title = "CS BARNABY (Only works with Finn)", Desc = "Client-sided Barnaby skin — requires Finn", Callback = function() loadstring(game:HttpGet("https://pastefy.app/cZJrzsZO/raw"))() end })
+ClientSidedTab:Button({ Title = "CS User", Desc = "Changes your UserId, Name, Character.Name, DisplayName, and nametag", Callback = function()
+    local Player = game.Players.LocalPlayer
+    Player.UserId = "86131129"
+    Player.Name = "Qwelver"
+    Player.Character.Name = "Qwelver"
+    Player.DisplayName = "Qwelver"
+    pcall(function()
+        local p = workspace.Players[game.Players.LocalPlayer.Name].HumanoidRootPart.NameTag.Frame
+        p.UserName.Text, p.DisplayName.Text = "DandyWorldHacka.", "WhyTFWouldITellYou."
+    end)
+    notify("CS User", "User info changed!")
+end })
+
+if inDandysWorld then
+    ClientSidedTab:Button({ Title = "Title Faker", Desc = "go in journal and press the freaky tree to begin", Callback = function()
+        getgenv().SCRIPT_KEY = "auth"
+        loadstring(game:HttpGet("https://api.jnkie.com/api/v1/luascripts/public/319eea422797aa013ae830afa7cf9003874f2659007fd8f99dbecd9d536a0f9b/download", true))()
+    end })
+end
+
+ClientSidedTab:Button({ Title = "Barnaby Deleter", Desc = "Removes Barnaby from your character", Callback = function() local p = game:GetService("Players").LocalPlayer; local b = p:FindFirstChild("Barnaby", true) or (p.Character and p.Character:FindFirstChild("Barnaby", true)); if b then b:Destroy() end end })
+
+-- =============================================
+-- TELEPORTS TAB (only in Dandy's World)
+-- =============================================
+if TeleportsTab then
+    local function teleportToGate(gateName)
+        local elevatorsFolder = Workspace:FindFirstChild("Elevators")
+        if not elevatorsFolder then
+            notify("Error", "Elevators folder not found in Workspace")
+            return
+        end
+        local gate = elevatorsFolder:FindFirstChild(gateName)
+        if not gate then
+            notify("Error", gateName .. " not found in Elevators folder")
+            return
+        end
+        local gateCFrame = nil
+        if gate:IsA("BasePart") then
+            gateCFrame = gate.CFrame
+        elseif gate:IsA("Model") then
+            local primary = gate.PrimaryPart
+            if primary then
+                gateCFrame = primary.CFrame
+            else
+                local part = gate:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    gateCFrame = part.CFrame
+                end
+            end
+        end
+        if not gateCFrame then
+            notify("Error", gateName .. " has no valid CFrame")
+            return
+        end
+        local char = LocalPlayer.Character
+        if not char or not char.Parent then
+            LocalPlayer.CharacterAdded:Wait()
+            char = LocalPlayer.Character
+        end
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            for i = 1, 5 do
+                task.wait(0.1)
+                hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then break end
+            end
+        end
+        if not hrp then
+            notify("Error", "Could not find HumanoidRootPart")
+            return
+        end
+        local success, err = pcall(function()
+            hrp.CFrame = gateCFrame + Vector3.new(0, 3, 0)
+        end)
+        if success then
+            notify("Teleported", "You have been teleported to the elevator")
+        else
+            notify("Error", "Teleport failed: " .. tostring(err))
+        end
+    end
+
+    TeleportsTab:Button({
+        Title = "Elevator 1",
+        Desc = "Teleports you to Left Elevator",
+        Callback = function() teleportToGate("LeftGate") end,
+    })
+    TeleportsTab:Button({
+        Title = "Elevator 2",
+        Desc = "Teleports you to Right Elevator",
+        Callback = function() teleportToGate("RightGate") end,
+    })
+    TeleportsTab:Button({
+        Title = "Elevator 3",
+        Desc = "Teleports you to The Center Elevator",
+        Callback = function() teleportToGate("CenterGate") end,
+    })
+end
+
+-- =============================================
+-- STARTUP NOTIFY
+-- =============================================
+task.wait(1)
+notify("Shrimpo's GUI", "Script loaded! All features start OFF.", 5)
+print("Shrimpo's GUI v0.0.3 loaded – have fun (or don't, idc)")
